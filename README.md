@@ -181,6 +181,10 @@ chart = call_mt5_tool("mt5_get_current_chart", {})
 print("Active Chart:", chart)
 
 # 3. Execute an AI-directed order
+# NOTE: set SL/TP close to the CURRENT price — brokers (e.g. Deriv) reject stops
+# outside their minimum distance, returning error 10016 "invalid stops".
+# Read the live price first with mt5_get_market_data, then size stops relative
+# to it (e.g. +/- 10 pips for EURUSD, +/- 0.1 for Step Index).
 order = call_mt5_tool("mt5_execute_trade", {
     "symbol": "EURUSD",
     "orderType": "BUY",

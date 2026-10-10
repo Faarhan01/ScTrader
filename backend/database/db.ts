@@ -138,6 +138,8 @@ function initSchema(db: Database) {
       trailing_step INTEGER NOT NULL,
       max_lot_size REAL NOT NULL,
       max_open_positions INTEGER NOT NULL,
+      allowed_symbols TEXT NOT NULL,
+      auto_close_margin_level REAL NOT NULL,
       updated_at INTEGER NOT NULL
     );
 
@@ -208,6 +210,16 @@ function initSchema(db: Database) {
     CREATE INDEX IF NOT EXISTS idx_observations_cat ON observations(category, created_at);
     CREATE INDEX IF NOT EXISTS idx_account_created ON account_history(created_at);
   `);
+
+  // Migration: add columns that may be missing on older databases
+  const riskCols = db.exec("PRAGMA table_info(risk_settings)");
+  const colNames = riskCols.length ? riskCols[0].values.map((r) => r[1]) : [];
+  if (!colNames.includes('allowed_symbols')) {
+    db.run("ALTER TABLE risk_settings ADD COLUMN allowed_symbols TEXT");
+  }
+  if (!colNames.includes('auto_close_margin_level')) {
+    db.run("ALTER TABLE risk_settings ADD COLUMN auto_close_margin_level REAL");
+  }
 }
 
 export function persistDatabase() {
@@ -494,8 +506,8 @@ export async function dbSaveRiskSettings(risk: any) {
     INSERT OR REPLACE INTO risk_settings (
       id, global_tp_usd, global_sl_usd, max_drawdown_pct, kill_switch,
       trailing_enabled, trailing_distance, trailing_step, max_lot_size,
-      max_open_positions, updated_at
-    ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      max_open_positions, allowed_symbols, auto_close_margin_level, updated_at
+    ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   stmt.run([
     risk.globalTakeProfitUSD,
@@ -507,10 +519,41 @@ export async function dbSaveRiskSettings(risk: any) {
     risk.trailingStopStepPoints,
     risk.maxLotSizePerTrade,
     risk.maxOpenPositions,
+    JSON.stringify(Array.isArray(risk.allowedSymbols) ? risk.allowedSymbols : []),
+    risk.autoCloseOnMarginLevelBelow,
     Date.now(),
   ]);
   stmt.free();
   persistDatabase();
+}
+
+export async function dbGetRiskSettings(): Promise<any | null> {
+  const db = await getDatabase();
+  const res = db.exec('SELECT * FROM risk_settings WHERE id = 1 LIMIT 1');
+  if (res.length === 0 || !res[0].values.length) return null;
+  const row = res[0].values[0];
+  const cols = res[0].columns;
+  const obj: Record<string, any> = {};
+  cols.forEach((c, i) => (obj[c] = row[i]));
+  let allowedSymbols: string[] = [];
+  try {
+    allowedSymbols = JSON.parse(obj.allowed_symbols || '[]');
+  } catch {
+    allowedSymbols = [];
+  }
+  return {
+    globalTakeProfitUSD: obj.global_tp_usd,
+    globalStopLossUSD: obj.global_sl_usd,
+    maxDrawdownPercent: obj.max_drawdown_pct,
+    emergencyKillSwitch: Boolean(obj.kill_switch),
+    trailingStopEnabled: Boolean(obj.trailing_enabled),
+    trailingStopDistancePoints: obj.trailing_distance,
+    trailingStepPoints: obj.trailing_step,
+    maxLotSizePerTrade: obj.max_lot_size,
+    maxOpenPositions: obj.max_open_positions,
+    allowedSymbols,
+    autoCloseOnMarginLevelBelow: obj.auto_close_margin_level ?? 100,
+  };
 }
 
 // 10. Query Orders

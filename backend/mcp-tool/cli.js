@@ -130,9 +130,15 @@ async function callTool(name, args) {
     method: 'tools/call',
     params: { name, arguments: args },
   });
+  // MCP wraps results in result.content[0].text. The text is normally a JSON
+  // string, but error messages are plain text — parse defensively.
   const text = res.result?.content?.[0]?.text;
-  const parsed = text ? JSON.parse(text) : res;
-  return parsed;
+  if (!text) return res;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { error: text, isError: res.result?.isError };
+  }
 }
 
 const [, , cmd, arg1, arg2, arg3, arg4, arg5] = process.argv;
@@ -160,7 +166,9 @@ try {
       process.exit(1);
     }
     const order = await callTool('mt5_execute_trade', {
-      symbol: arg1.toUpperCase(),
+      // Preserve the original symbol casing — MT5 SymbolSelect is
+      // case-sensitive on brokers like Deriv ("Step Index", not "STEP INDEX").
+      symbol: arg1,
       orderType: cmd.toUpperCase(),
       volume: parseFloat(arg2),
       sl: arg3 ? parseFloat(arg3) : undefined,

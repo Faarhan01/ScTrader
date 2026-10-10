@@ -19,6 +19,7 @@ import {
   dbInsertOrder,
   dbInsertLog,
   dbSaveRiskSettings,
+  dbGetRiskSettings,
   dbGetOrders,
   dbGetAnalytics,
   dbInsertAccountSnapshot,
@@ -99,6 +100,10 @@ class TradeStore {
   constructor() {
     // Initialize SQLite Database asynchronously
     getDatabase().catch((err) => console.error('Failed to init SQLite DB:', err));
+    // Restore persisted Risk Guard configuration (if any) so settings survive restarts
+    dbGetRiskSettings().then((saved) => {
+      if (saved) this.riskGuard = { ...this.riskGuard, ...saved };
+    }).catch(() => { /* ignore; keep defaults */ });
   }
 
   // Handle EA sync from MT5 WebRequest
@@ -305,7 +310,8 @@ class TradeStore {
         };
       }
       if (params.symbol && this.riskGuard.allowedSymbols.length > 0) {
-        if (!this.riskGuard.allowedSymbols.includes(params.symbol)) {
+        const sym = params.symbol.toUpperCase();
+        if (!this.riskGuard.allowedSymbols.some((s) => s.toUpperCase() === sym)) {
           return {
             success: false,
             error: `Symbol ${params.symbol} is not permitted by Risk Guard policy.`,
@@ -589,7 +595,9 @@ class TradeStore {
   public requestHistoryFromEA(symbol: string, timeframe = 'M1', count = 100) {
     return this.enqueueCommand({
       action: 'FETCH_HISTORY',
-      symbol: symbol.toUpperCase(),
+      // Preserve original casing — MT5 SymbolSelect is case-sensitive on
+      // brokers like Deriv ("Step Index", not "STEP INDEX").
+      symbol: symbol,
       comment: JSON.stringify({ timeframe, count }),
       source: 'AI_MCP',
     });

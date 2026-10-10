@@ -672,7 +672,9 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
 
       const res = tradeStore.enqueueCommand({
         action: 'EXECUTE_TRADE',
-        symbol: String(symbol).toUpperCase(),
+        // Preserve the original symbol casing — MT5 SymbolSelect is
+        // case-sensitive on brokers like Deriv ("Step Index", not "STEP INDEX").
+        symbol: String(symbol),
         orderType: String(orderType).toUpperCase() as OrderType,
         volume: Number(volume),
         sl: sl ? Number(sl) : undefined,
@@ -849,8 +851,8 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     }
 
     case 'mt5_request_chart_history': {
-      const sym = String(args.symbol).toUpperCase();
-      const tf = args.timeframe ? String(args.timeframe).toUpperCase() : 'M1';
+      const sym = args.symbol || tradeStore.getCurrentChart()?.symbol || 'EURUSD';
+      const tf = args.timeframe || tradeStore.getCurrentChart()?.timeframe || 'M1';
       const count = args.count ? Number(args.count) : 100;
       const res = tradeStore.requestHistoryFromEA(sym, tf, count);
       return {

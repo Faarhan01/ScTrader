@@ -217,8 +217,8 @@ export const KnowledgeBasePage: React.FC = () => {
         name: stratForm.name,
         description: stratForm.description,
         type: stratForm.type,
-        symbol: stratForm.symbol.toUpperCase(),
-        timeframe: stratForm.timeframe.toUpperCase(),
+        symbol: stratForm.symbol,
+        timeframe: stratForm.timeframe,
         status: stratForm.status,
         tags: stratForm.tags.split(',').map((t) => t.trim()).filter(Boolean),
         notes: stratForm.notes,
@@ -285,8 +285,8 @@ export const KnowledgeBasePage: React.FC = () => {
       const payload: any = {
         title: obsForm.title,
         content: obsForm.content,
-        symbol: obsForm.symbol ? obsForm.symbol.toUpperCase() : null,
-        timeframe: obsForm.timeframe ? obsForm.timeframe.toUpperCase() : null,
+        symbol: obsForm.symbol ? obsForm.symbol : null,
+        timeframe: obsForm.timeframe ? obsForm.timeframe : null,
         category: obsForm.category,
         tags: obsForm.tags.split(',').map((t) => t.trim()).filter(Boolean),
       };

@@ -97,7 +97,7 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
                 <input
                   type="text"
                   value={selectedSymbol}
-                  onChange={(e) => onSelectSymbol(e.target.value.toUpperCase())}
+                  onChange={(e) => onSelectSymbol(e.target.value)}
                   placeholder="e.g. EURUSD"
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-white font-mono uppercase focus:border-cyan-500 focus:outline-none"
                   list="symbol-options"
