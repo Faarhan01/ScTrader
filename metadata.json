@@ -1,0 +1,8 @@
+{
+  "name": "Remix MT5 AI Copilot \u0026 MCP Bridge Terminal",
+  "description": "MetaTrader 5 Expert Advisor bridge with Model Context Protocol (MCP) and REST/WebSocket API for external AI trade execution, real-time tick streaming, open position management, and custom risk parameters.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
