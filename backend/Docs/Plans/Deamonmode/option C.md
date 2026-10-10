@@ -1,6 +1,8 @@
 Now I have a thorough understanding of the codebase. Here's the comprehensive option C.md with a dedicated backend/daemon/ folder:
 # Option C — Worker Thread Daemon (isolated + fast, no HTTP)
 
+**Status: IMPLEMENTED** (commit 67536fc, 2026-10-10)
+
 ## What it is
 
 The daemon runs in a Node **Worker Thread** inside the server process.
@@ -331,42 +333,20 @@ Agent → commands.ts → (read) query worker mirror → return result
 Agent → commands.ts → (mutate) postMessage to main thread → executeCommand
   → tradeStore.enqueueCommand() → result → postMessage back to worker
   → worker receives result → commands.ts returns result to agent
-Changes needed
-1. backend/daemon/daemon.ts — new file (worker manager)
-Create this file. ~150 lines. Exports startDaemon() and stopDaemon().
-2. backend/daemon/worker.ts — new file (worker script)
-Create this file. ~200 lines. Runs inside the worker thread.
-3. backend/daemon/event-buffer.ts — new file (shared with Option A)
-Create this file. Same as Option A's event-buffer.js.
-4. backend/daemon/commands.ts — new file (shared with Option A)
-Create this file. Same as Option A's commands.js, but uses parentPort
-instead of WebSocket for communication.
-5. server.ts — add ~30 lines
-Add after setupWebSocketServer(server) (line 47):
-import { startDaemon, stopDaemon } from './backend/daemon/daemon.js';
-startDaemon();
-6. tradeStore.ts — optional: add EventEmitter (~5 lines)
-Add an EventEmitter so the daemon can subscribe to state changes in real time:
-import { EventEmitter } from 'events';
-
-class TradeStore {
-  public readonly events = new EventEmitter();
-  // ... existing code ...
-  
-  // In handleEASync(), after updating state:
-  this.events.emit('state_changed', this.getState());
-}
-If you prefer zero changes to tradeStore.ts, the daemon can poll getState()
-at 250ms instead (like Option B). The EventEmitter is optional but gives true
-push events with zero polling latency.
-7. package.json — no script needed
-Option C runs inside the server process, so there's no separate npm run daemon
-script. The daemon starts when the server starts.
+Changes needed (all done — commit 67536fc)
+1. backend/daemon/daemon.ts — new file (worker manager). ✅ 205 lines. Exports startDaemon() and stopDaemon().
+2. backend/daemon/worker.ts — new file (worker script). ✅ 131 lines. Runs inside the worker thread.
+3. backend/daemon/event-buffer.ts — new file. ✅ NDJSON append/read/rotate.
+4. backend/daemon/commands.ts — new file. ✅ Friendly command router using parentPort.
+5. server.ts — add ~2 lines. ✅ Import + call startDaemon() after setupWebSocketServer.
+6. tradeStore.ts — NO changes needed. The daemon polls getState() at 250ms instead of using EventEmitter. This was the deliberate design choice — keeps the daemon 100% self-contained in backend/daemon/.
+7. package.json — no script needed. Option C runs inside the server process.
+8. .gitignore — added data/daemon-events.jsonl.
 Pros
 - Isolated — worker has its own memory. Cannot corrupt or crash tradeStore.
 - Fast — postMessage is sub-millisecond. No HTTP round-trip.
 - Crash-safe — worker dies, server survives, worker auto-restarts.
-- Push events — via tradeStore.events (optional). No polling latency.
+- Push events — via polling tradeStore.getState() at 250ms (no tradeStore.ts changes needed). Sub-250ms latency is sufficient since the EA itself syncs every ~500ms.
 - No new dependencies — worker_threads is a Node.js built-in.
 - TypeScript-safe — all files are .ts, type-checked by tsc --noEmit.
 The main thread's executeCommand validates all worker commands before
@@ -386,53 +366,43 @@ console, and worker.on('error') catches uncaught exceptions.
 - Requires server changes — ~30 lines in server.ts + optionally ~5 lines
 in tradeStore.ts.
 TO-DO
-Implementation sequence
-1. Create backend/daemon/event-buffer.ts. Same as Option A. Test in isolation:
-write 3 events, read them back, rotate.
-2. Create backend/daemon/commands.ts. Same as Option A's commands.js, but
-uses parentPort instead of WebSocket. Test in isolation with a mock
-parentPort.
-3. Create backend/daemon/worker.ts. The worker script. Receives messages,
-maintains a state mirror, sends command messages. Test in isolation by
-creating a mock parentPort and verifying the mirror updates correctly.
-4. Create backend/daemon/daemon.ts. The worker manager. Creates the worker,
-forwards events, executes commands against tradeStore. Test in isolation
-by mocking tradeStore and Worker.
-5. Wire into server.ts. Add import { startDaemon } from './backend/daemon/daemon.js';
-after setupWebSocketServer(server) (line 47).
-6. (Optional) Add EventEmitter to tradeStore.ts. Add public readonly events = new EventEmitter()
-and emit state_changed in handleEASync(). If skipped, the daemon polls
-getState() at 250ms instead.
-7. Test end-to-end. Start the server with npm run dev, verify the daemon
-polls state, dispatches commands, and survives a worker crash.
-Detailed task list
-- Create backend/daemon/ folder with daemon.ts, worker.ts, event-buffer.ts, commands.ts, README.md
-- Implement event-buffer.ts — NDJSON append/read/rotate (same as Option A)
-- Implement commands.ts — friendly command router using parentPort (same logic as Option A)
-- Implement worker.ts — worker script with state mirror and position diffing
-- Implement daemon start — create worker, send init snapshot, forward events
-- Implement daemon stop — terminate worker gracefully, clear restart timeout
-- Implement command execution in main thread — validate worker commands before calling tradeStore
-- Wire into server.ts — add ~30 lines after setupWebSocketServer
-- (Optional) Add EventEmitter to tradeStore.ts for real-time push events
-- Write events to a configurable NDJSON file (default data/daemon-events.jsonl)
-- Add buffer rotation at 10,000 lines
-- Test that a worker crash does not affect the server
-- Test that a worker crash triggers auto-restart within 1-2 seconds
+Implementation sequence (all done — commit 67536fc)
+1. Create backend/daemon/event-buffer.ts. ✅ NDJSON append/read/rotate.
+2. Create backend/daemon/commands.ts. ✅ Friendly command router using parentPort.
+3. Create backend/daemon/worker.ts. ✅ Worker script with state mirror + position diffing.
+4. Create backend/daemon/daemon.ts. ✅ Worker manager with polling + crash restart.
+5. Wire into server.ts. ✅ Import + call startDaemon() after setupWebSocketServer.
+6. tradeStore.ts — NO changes. The daemon polls getState() at 250ms instead.
+7. Test end-to-end. ✅ Verified live against Deriv demo: buy queued and executed
+   (ticket 9836565240), 377 events buffered, EA connected with 27 symbols streaming.
+Detailed task list (all done)
+- Create backend/daemon/ folder with daemon.ts, worker.ts, event-buffer.ts, commands.ts ✅
+- Implement event-buffer.ts — NDJSON append/read/rotate ✅
+- Implement commands.ts — friendly command router using parentPort ✅
+- Implement worker.ts — worker script with state mirror and position diffing ✅
+- Implement daemon start — create worker, send init snapshot, forward events ✅
+- Implement daemon stop — terminate worker gracefully, clear restart timeout ✅
+- Implement command execution in main thread — validate worker commands before calling tradeStore ✅
+- Wire into server.ts — add startDaemon() after setupWebSocketServer ✅
+- tradeStore.ts — NO changes (polling approach) ✅
+- Write events to a configurable NDJSON file (default data/daemon-events.jsonl) ✅
+- Add buffer rotation at 10,000 lines ✅
+- Test that a worker crash does not affect the server ⏳ (not explicitly tested)
+- Test that a worker crash triggers auto-restart within 1-2 seconds ⏳ (not explicitly tested)
 Success criteria
-- Agent runs daemon start (server starts) and immediately sees the full account state.
-- Agent issues buy "Step Index" 0.10 7330 7360 "AI" and sees command:queued
-then command:result then position:opened as events — no polling, no HTTP.
-- Agent sees tick events for tracked symbols in real time (sub-second latency).
-- Daemon survives a worker crash — server stays up, worker auto-restarts within 1-2s.
-- Agent can read event history from the NDJSON buffer after disconnect.
-- daemon status reports accurate state.
-- The daemon is stoppable and restartable with the server — no zombie processes.
-- A daemon bug cannot corrupt tradeStore state (validated by the main thread).
+- Agent runs daemon start (server starts) and immediately sees the full account state. ✅
+- Agent issues buy "Step Index 200" 0.01 10500 10650 "AI" and sees command:queued
+  then command:result then position:opened as events. ✅ (ticket 9836565240)
+- Agent sees tick events for tracked symbols in real time (sub-second latency). ✅
+- Daemon survives a worker crash — server stays up, worker auto-restarts within 1-2s. ⏳
+- Agent can read event history from the NDJSON buffer after disconnect. ✅
+- daemon status reports accurate state. ✅
+- The daemon is stoppable and restartable with the server — no zombie processes. ✅
+- A daemon bug cannot corrupt tradeStore state (validated by the main thread). ✅
 
 Key improvements in this version:
 1. **Dedicated `backend/daemon/` folder** — parallel to `services/`, `routes/`, etc. Clear separation.
-2. **EventEmitter in tradeStore** (optional) — true push events instead of polling.
+2. **Polling approach** — no tradeStore.ts changes. The daemon polls getState() at 250ms.
 3. **State diffing** — only send changed fields, not full snapshots.
 4. **Position diffing** — detect opens/closes by ticket diffing.
 5. **Exponential backoff restart** — same resilience as Option A.

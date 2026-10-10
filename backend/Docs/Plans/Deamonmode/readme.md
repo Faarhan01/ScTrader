@@ -40,8 +40,8 @@ Option B (in-process): backend/services/daemon.ts — same folder as tradeStore.
 - It's a server service, not a client tool. It imports tradeStore directly and runs in-process.
 - Consistent with existing pattern: every server-side component lives in backend/services/.
 - No new folder to design — it's just another service file, imported by server.ts.
-Option C (worker thread): backend/services/daemon.ts + backend/services/daemon-worker.ts — same folder as tradeStore.ts. The daemon runs in a Node Worker Thread, communicating via postMessage. It gets Option B's latency with Option A's isolation (crash-safe, cannot corrupt tradeStore).
-Shared code: Option A's commands.js (friendly command router) and event-buffer.js (NDJSON log) can be extracted into shared modules that all three options import. Only the connection layer differs (WebSocket client vs. in-process polling vs. worker thread messaging).
+Option C (worker thread): **backend/daemon/** — dedicated top-level folder parallel to services/, routes/, etc. The daemon runs in a Node Worker Thread, communicating via postMessage. It gets Option B's latency with Option A's isolation (crash-safe, cannot corrupt tradeStore). **Status: IMPLEMENTED** (commit 67536fc).
+Shared code: event-buffer.ts and commands.ts live in backend/daemon/ and are shared across options. Only the connection layer differs (WebSocket client vs. in-process polling vs. worker thread messaging).
 Files
 File	Purpose
 daemon/index.js	Entry point. Commands: start, stop, status, attach
@@ -115,9 +115,12 @@ TO-DO
 - Write daemon/README.md with usage examples and troubleshooting
 - (Option B only) Create backend/services/daemon.ts — self-contained in-process daemon service
 - (Option B only) Wire into server.ts — add one import line after setupWebSocketServer
-- (Option C only) Create backend/services/daemon-worker.ts — worker thread script
-- (Option C only) Create backend/services/daemon.ts — worker manager with message router
-- (Option C only) Wire into server.ts — add ~30 lines for worker lifecycle management
+- (Option C only) Create backend/daemon/daemon.ts — worker manager with message router ✅ DONE (commit 67536fc)
+- (Option C only) Create backend/daemon/worker.ts — worker thread script ✅ DONE
+- (Option C only) Create backend/daemon/event-buffer.ts — NDJSON event log ✅ DONE
+- (Option C only) Create backend/daemon/commands.ts — friendly command router ✅ DONE
+- (Option C only) Wire into server.ts — add startDaemon() after setupWebSocketServer ✅ DONE
+- (Option C only) Add data/daemon-events.jsonl to .gitignore ✅ DONE
 Why this beats the alternatives
 - vs. friendly CLI only: The agent stops polling and starts reacting. Being "in sync" means seeing state changes, not just state snapshots.
 - vs. MCP config snippet: The agent isn't an MCP host, so a config file does nothing for it. The daemon gives the same benefit — a persistent, event-driven connection — without needing the agent to speak MCP.
