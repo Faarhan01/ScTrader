@@ -6,3 +6,5 @@ coverage/
 *.log
 .env*
 !.env.example
+data/mt5_bridge.sqlite
+package-lock.json

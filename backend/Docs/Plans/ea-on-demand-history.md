@@ -1,6 +1,12 @@
 # EA-Side On-Demand Historical Bar Requests
 
-**Status:** Already implemented — no action needed (verified)
+**Status:** Already implemented — verified
+
+## TO-DO
+
+- [ ] 1. Fix single-slot race condition (AIMT5Bridge.mq5:49, 844)
+- [ ] 2. Verify end-to-end live (never tested)
+- [ ] 3. Add request ID so the server can match responses to requests
 
 ## Verified current state
 
@@ -12,21 +18,23 @@ The full on-demand history flow already exists:
    - Parses `timeframe` and `count` from the command object or the `comment` JSON (`ExtractJsonField`)
    - Defaults to `M1` / 100 bars
    - Calls `CopyRates(symbol, tfEnum, 0, count, reqRates)`
-   - Builds a JSON payload and stores it in `g_onDemandHistoryJson`
-4. **Return:** `AIMT5Bridge.mq5:410` — the EA transmits `historyPayload` in the next sync
-5. **Persist:** `tradeStore.ts:150-156` — server persists via `dbInsertCandles`
+   - Builds a JSON payload and stores it in `g_onDemandHistoryJson` (line 844)
+4. **Return:** `AIMT5Bridge.mq5:408-411` — the EA transmits `g_onDemandHistoryJson` as `historyPayload` in the next sync, then clears it
+5. **Persist:** `tradeStore.ts:150-156` — server receives `historyPayload`, persists via `dbInsertCandles`
 
-## Remaining issues (minor)
+## Details per TO-DO
 
-- `tradeStore.ts:598` — `requestHistoryFromEA` uppercases the symbol. Fixed in `symbol-casing.md`.
-- `mcpServer.ts:854` — `mt5_request_chart_history` uppercases before calling. Fixed in `symbol-casing.md`.
-- The on-demand result is only stored in `g_onDemandHistoryJson` (a single slot) — if two requests come in before the next sync, the second overwrites the first.
+### 1. Fix single-slot race condition
+`AIMT5Bridge.mq5:49` declares a single `string g_onDemandHistoryJson = ""`. Line 844 overwrites it on each `FETCH_HISTORY`. If the bridge requests history for two different symbols/timeframes before the next sync (line 411 clears it), only the last is returned — the first is silently lost.
 
-## To-do
+Fix: replace the single string with a queue of `{ id, json }` pairs, and transmit all of them in `historyPayload` as an array. The server already handles a single payload object (tradeStore.ts:150) — extend it to handle an array.
 
-- [ ] **Single-slot race condition.** `g_onDemandHistoryJson` is one variable. If the bridge requests history for two different symbols/timeframes before the next sync, only the last is returned. Consider a queue of pending history requests with per-request IDs.
-- [ ] **Verify end-to-end.** The flow exists but was never tested live. Run `mt5_request_chart_history` and confirm the EA pulls and returns real bars.
+### 2. Verify end-to-end live
+The flow exists on paper but was never tested. Run `mt5_request_chart_history` with a real symbol (e.g. Step Index) and confirm the EA pulls and returns real bars through the DB.
+
+### 3. Add request ID
+Currently the command `id` is used to track the request, but the `historyPayload` returned by the EA has no `id` field, so the server can't match a response to a specific request. Add the command `id` to the payload JSON (AIMT5Bridge.mq5:827) so the server can route the result correctly — especially important once the queue fix (TO-DO 1) is in place.
 
 ## Why it matters
 
-Without on-demand requests, the AI can only analyze the active chart's last 60 bars. This flow already removes that limitation — it just needs the casing fix and a live test.
+Without on-demand requests, the AI can only analyze the active chart's last 60 bars. This flow already removes that limitation — it just needs the casing fix (done) and a live test.
