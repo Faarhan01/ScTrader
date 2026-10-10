@@ -7,4 +7,5 @@ coverage/
 .env*
 !.env.example
 data/mt5_bridge.sqlite
+data/daemon-events.jsonl
 package-lock.json
