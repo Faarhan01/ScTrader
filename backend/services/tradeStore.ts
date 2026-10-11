@@ -31,6 +31,7 @@ import {
   pruneDatabase,
 } from '../database/db.js';
 import { calculateIndicators } from './indicatorEngine.js';
+import { Mt5DirectService } from './mt5DirectService.js';
 
 class TradeStore {
   private account: AccountInfo = {
@@ -43,13 +44,13 @@ class TradeStore {
     marginLevel: 0,
     leverage: 0,
     currency: 'USD',
-    server: 'Awaiting MT5 EA Connection',
+    server: 'Awaiting MT5 Connection',
     company: 'MetaTrader 5',
     profit: 0,
     lastUpdate: 0,
   };
 
-  // Open positions received purely from real MT5 EA (NO fake simulated positions)
+  // Open positions received from MetaTrader 5 via direct API
   private positions: Map<number, Position> = new Map();
 
   private ticks: Map<string, TickData> = new Map();
@@ -61,7 +62,7 @@ class TradeStore {
       timestamp: Date.now(),
       level: 'info',
       title: 'MT5 Bridge Hub Initialized',
-      details: 'Bridge endpoint listening at http://127.0.0.1:7777 and MCP endpoint at /api/mcp. Awaiting MetaTrader 5 EA connection.',
+      details: 'Bridge endpoint listening at http://127.0.0.1:7777 and MCP endpoint at /api/mcp. Using direct MetaTrader5 API.',
       source: 'SYSTEM',
     },
   ];
@@ -80,9 +81,6 @@ class TradeStore {
     autoCloseOnMarginLevelBelow: 100, // 100% margin call safety
   };
 
-  private eaConnected: boolean = false;
-  private lastEaSync: number = 0;
-  private eaVersion: string = '2.10';
   private mt5ServerTime: number = 0;
   private terminalName: string = '';
   private terminalCompany: string = '';
@@ -97,6 +95,13 @@ class TradeStore {
   // Track tick movement history for charts (populated by live MT5 tick updates)
   private tickHistory: Map<string, { time: number; bid: number; ask: number }[]> = new Map();
 
+  // Direct MT5 service
+  private mt5Service = Mt5DirectService.getInstance();
+
+  // Polling interval for updating state from MT5 (in milliseconds)
+  private pollingInterval: NodeJS.Timeout | null = null;
+  private readonly POLLING_INTERVAL_MS = 2000; // 2 seconds
+
   constructor() {
     // Initialize SQLite Database asynchronously
     getDatabase().catch((err) => console.error('Failed to init SQLite DB:', err));
@@ -104,156 +109,212 @@ class TradeStore {
     dbGetRiskSettings().then((saved) => {
       if (saved) this.riskGuard = { ...this.riskGuard, ...saved };
     }).catch(() => { /* ignore; keep defaults */ });
+
+    // Start polling for MT5 data
+    this.startPolling();
   }
 
-  // Handle EA sync from MT5 WebRequest
-  public handleEASync(payload: EASyncPayload): TradeCommand[] {
-    const wasConnected = this.eaConnected && Date.now() - this.lastEaSync < 5000;
-    this.eaConnected = true;
-    this.lastEaSync = Date.now();
-    this.eaVersion = payload.eaVersion || this.eaVersion;
-    this.mt5ServerTime = payload.mt5Time || Math.floor(Date.now() / 1000);
-
-    if (payload.terminalName) this.terminalName = payload.terminalName;
-    if (payload.terminalCompany) this.terminalCompany = payload.terminalCompany;
-    if (payload.terminalBuild) this.terminalBuild = payload.terminalBuild;
-
-    // Log connection pickup if first time or reconnected
-    if (!wasConnected) {
-      this.addLog(
-        'info',
-        'MetaTrader 5 EA Attached & Connected',
-        `Terminal: ${payload.terminalName || 'MT5'} (${payload.terminalCompany || 'Broker'}) • Chart: ${payload.currentChart?.symbol || 'Active'} [${payload.currentChart?.timeframe || 'TF'}]`,
-        'MT5_EA'
-      );
+  /**
+   * Start polling MT5 for account, positions, ticks, symbols, etc.
+   */
+  private startPolling() {
+    // Clear any existing interval
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
     }
 
-    // 0. Update Current Chart & All Symbols
-    if (payload.currentChart) {
-      this.currentChart = payload.currentChart;
-    }
-    if (Array.isArray(payload.allSymbols)) {
-      this.allSymbols = payload.allSymbols;
-    }
-    if (Array.isArray(payload.chartHistory) && payload.chartHistory.length > 0) {
-      this.chartHistory = payload.chartHistory;
-      const currentSym = this.currentChart?.symbol || 'EURUSD';
-      const currentTf = this.currentChart?.timeframe || 'M1';
-      dbInsertCandles(currentSym, currentTf, payload.chartHistory).catch((e) =>
-        console.error('DB insert candles error:', e)
-      );
-      // Auto-compute indicators server-side
-      this.indicators = calculateIndicators(this.chartHistory, currentSym, currentTf);
-    }
+    // Fetch initial data
+    this.updateStateFromMT5();
 
-    // Process on-demand historical payload if returned from EA
-    if (payload.historyPayload && Array.isArray(payload.historyPayload.candles)) {
-      dbInsertCandles(
-        payload.historyPayload.symbol,
-        payload.historyPayload.timeframe,
-        payload.historyPayload.candles
-      ).catch((e) => console.error('DB insert on-demand history error:', e));
-    }
+    // Set up periodic updates
+    this.pollingInterval = setInterval(() => {
+      this.updateStateFromMT5();
+    }, this.POLLING_INTERVAL_MS);
+  }
 
-    // 1. Update Account Info & Persist Snapshot
-    if (payload.account) {
-      this.account = {
-        ...payload.account,
-        lastUpdate: Date.now(),
-      };
-      dbInsertAccountSnapshot(this.account).catch((e) =>
-        console.error('DB account snapshot error:', e)
-      );
+  /**
+   * Stop polling (called on shutdown)
+   */
+  public stopPolling() {
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
+      this.pollingInterval = null;
     }
+  }
 
-    // 2. Update Open Positions
-    if (Array.isArray(payload.positions)) {
+  /**
+   * Update the entire state from MT5 using the direct API
+   */
+  private async updateStateFromMT5() {
+    try {
+      // Update account
+      const account = await this.mt5Service.getAccount();
+      if (account) {
+        this.account = { ...account, lastUpdate: Date.now() };
+        dbInsertAccountSnapshot(this.account).catch((e) =>
+          console.error('DB account snapshot error:', e)
+        );
+      }
+
+      // Update positions
+      const positions = await this.mt5Service.getPositions();
       this.positions.clear();
-      for (const pos of payload.positions) {
+      for (const pos of positions) {
         this.positions.set(pos.ticket, pos);
       }
-    }
 
-    // 3. Update Pending Orders
-    if (Array.isArray(payload.pendingOrders)) {
-      this.pendingOrders.clear();
-      for (const po of payload.pendingOrders) {
-        this.pendingOrders.set(po.ticket, {
-          ...po,
-          timeSetupIso: po.timeSetupIso || new Date(po.timeSetup * 1000).toISOString(),
-        });
+      // Update ticks for all symbols we care about (or from allowedSymbols)
+      const symbolsToWatch = this.riskGuard.allowedSymbols;
+      const ticks = await this.mt5Service.getTicks(symbolsToWatch);
+      this.ticks.clear();
+      for (const [symbol, tick] of Object.entries(ticks)) {
+        if (tick && !('error' in tick)) {
+          this.ticks.set(symbol, tick as TickData);
+        }
       }
-    }
 
-    // 4. Update Market Depth
-    if (payload.marketDepth) {
-      this.marketDepth = payload.marketDepth;
-    }
+      // Update symbols (detailed symbol info)
+      const symbols = await this.mt5Service.getSymbols(symbolsToWatch);
+      this.allSymbols = symbols;
 
-    // 5. Update Live Ticks & Persist to SQLite
-    if (Array.isArray(payload.ticks)) {
-      dbInsertTicks(payload.ticks).catch((e) => console.error('DB insert ticks error:', e));
-      pruneDatabase().catch((e) => console.error('DB prune error:', e));
-      for (const tick of payload.ticks) {
-        const existing = this.ticks.get(tick.symbol);
-        const updated: TickData = {
-          ...tick,
-          high24h: existing ? Math.max(existing.high24h || tick.ask, tick.ask) : tick.ask,
-          low24h: existing ? Math.min(existing.low24h || tick.bid, tick.bid) : tick.bid,
+      // Initialize currentChart to first symbol if not already set
+      if (!this.currentChart && symbols.length > 0) {
+        const firstSymbol = symbols[0];
+        this.currentChart = {
+          symbol: firstSymbol.symbol,
+          timeframe: 'M1', // Default timeframe
+          digits: firstSymbol.digits,
+          point: firstSymbol.point,
+          bid: firstSymbol.bid,
+          ask: firstSymbol.ask,
+          spread: firstSymbol.spread,
+          minLot: firstSymbol.minLot,
+          maxLot: firstSymbol.maxLot,
+          lotStep: firstSymbol.lotStep,
+          contractSize: firstSymbol.contractSize,
+          tickValue: firstSymbol.contractSize * firstSymbol.point, // Calculate tick value
+          tradeAllowed: firstSymbol.tradeAllowed,
+          sessionOpen: firstSymbol.sessionOpen ?? 0,
+          sessionHigh: firstSymbol.sessionHigh ?? 0,
+          sessionLow: firstSymbol.sessionLow ?? 0,
+          sessionVolume: firstSymbol.sessionVolume ?? 0,
+          description: undefined, // Not available in symbol info
+          currencyBase: undefined, // Not available in symbol info
+          currencyProfit: undefined, // Not available in symbol info
+          isCurrentChart: true
         };
-        this.ticks.set(tick.symbol, updated);
+      }
 
-        // Update history
-        let hist = this.tickHistory.get(tick.symbol);
+      // Update chart history for the current symbol (if any)
+      if (this.currentChart?.symbol) {
+        const symbol = this.currentChart.symbol;
+        const timeframe = this.currentChart.timeframe || 'M1';
+        const candles = await this.mt5Service.getCandles(symbol, timeframe, 500);
+        if (candles.length > 0) {
+          this.chartHistory = candles;
+          dbInsertCandles(symbol, timeframe, candles).catch((e) =>
+            console.error('DB insert candles error:', e)
+          );
+          // Auto-compute indicators server-side
+          this.indicators = calculateIndicators(this.chartHistory, symbol, timeframe);
+        }
+      }
+
+      // Update tick history for charting
+      for (const [symbol, tick] of this.ticks.entries()) {
+        let hist = this.tickHistory.get(symbol);
         if (!hist) {
           hist = [];
-          this.tickHistory.set(tick.symbol, hist);
+          this.tickHistory.set(symbol, hist);
         }
         hist.push({ time: Date.now(), bid: tick.bid, ask: tick.ask });
         if (hist.length > 100) hist.shift();
       }
-    }
 
-    // 4. Resolve Execution Results reported by EA
-    if (Array.isArray(payload.pendingExecutionResults)) {
-      for (const res of payload.pendingExecutionResults) {
-        this.resolveExecutionResult(res);
+      // Recalculate floating profit on open positions
+      let totalProfit = 0;
+      for (const pos of this.positions.values()) {
+        const tick = this.ticks.get(pos.symbol);
+        if (tick) {
+          let profit = 0;
+          const diff = pos.type === 'BUY' ? tick.bid - pos.openPrice : pos.openPrice - tick.ask;
+          if (pos.symbol === 'XAUUSD') {
+            profit = diff * pos.volume * 100;
+          } else if (pos.symbol === 'BTCUSD') {
+            profit = diff * pos.volume;
+          } else {
+            profit = diff * pos.volume * 100000;
+          }
+          pos.profit = Number(profit.toFixed(2));
+          pos.currentPrice = pos.type === 'BUY' ? tick.bid : tick.ask;
+          this.positions.set(pos.ticket, pos);
+          totalProfit += pos.profit;
+        }
       }
+      this.account.profit = Number(totalProfit.toFixed(2));
+      this.account.equity = Number((this.account.balance + totalProfit).toFixed(2));
+      if (this.account.margin > 0) {
+        this.account.marginLevel = Number(((this.account.equity / this.account.margin) * 100).toFixed(2));
+      }
+
+    } catch (error: any) {
+      console.error('Error updating state from MT5:', error);
+      this.addLog(
+        'error',
+        'MT5 State Update Failed',
+        `Failed to update state from MT5: ${error.message}`
+        'MT5_DIRECT'
+      );
     }
+  }
 
-    // 5. Evaluate Risk Guard Rules
-    this.evaluateRiskGuard();
-
-    // 6. Return pending commands to EA
+  // Handle EA sync from MT5 WebRequest - NOW DEPRECATED, we use direct API
+  public handleEASync(payload: EASyncPayload): TradeCommand[] {
+    this.addLog(
+      'warn',
+      'EA Sync Ignored',
+      'Using direct MetaTrader5 API instead of EA sync',
+      'MT5_DIRECT'
+    );
+    // We still return pending commands so the EA doesn't hang
     return this.dispatchPendingCommands();
   }
 
-  // Update a single live tick (used by EA or simulation)
+  // Update a single live tick (used by EA or simulation) - NOW DEPRECATED
   public updateTick(tick: TickData) {
-    const existing = this.ticks.get(tick.symbol);
+    this.addLog(
+      'warn',
+      'Tick Update Ignored',
+      'Using direct MetaTrader5 API for tick updates',
+      'MT5_DIRECT'
+    );
+    // We still update the local tick for immediate UI feedback, but the state is updated by polling
+    const symbol = tick.symbol;
+    const existing = this.ticks.get(symbol);
     const updated: TickData = {
       ...tick,
       high24h: existing ? Math.max(existing.high24h || tick.ask, tick.ask) : tick.ask,
       low24h: existing ? Math.min(existing.low24h || tick.bid, tick.bid) : tick.bid,
     };
-    this.ticks.set(tick.symbol, updated);
+    this.ticks.set(symbol, updated);
 
-    let hist = this.tickHistory.get(tick.symbol);
+    // Update history
+    let hist = this.tickHistory.get(symbol);
     if (!hist) {
       hist = [];
-      this.tickHistory.set(tick.symbol, hist);
+      this.tickHistory.set(symbol, hist);
     }
     hist.push({ time: Date.now(), bid: tick.bid, ask: tick.ask });
     if (hist.length > 100) hist.shift();
 
     // Recalculate floating profit on open positions for this symbol
     for (const [ticket, pos] of this.positions.entries()) {
-      if (pos.symbol === tick.symbol) {
+      if (pos.symbol === symbol) {
         let profit = 0;
         const diff = pos.type === 'BUY' ? tick.bid - pos.openPrice : pos.openPrice - tick.ask;
-        if (tick.symbol === 'XAUUSD') {
+        if (symbol === 'XAUUSD') {
           profit = diff * pos.volume * 100;
-        } else if (tick.symbol === 'BTCUSD') {
+        } else if (symbol === 'BTCUSD') {
           profit = diff * pos.volume;
         } else {
           profit = diff * pos.volume * 100000;
@@ -276,8 +337,8 @@ class TradeStore {
     }
   }
 
-  // Enqueue a trade command
-  public enqueueCommand(params: {
+  // Enqueue a trade command - NOW EXECUTES DIRECTLY via MT5 API
+  public async enqueueCommand(params: {
     action: TradeCommand['action'];
     symbol?: string;
     orderType?: TradeCommand['orderType'];
@@ -290,7 +351,7 @@ class TradeStore {
     comment?: string;
     slippage?: number;
     source: TradeCommand['source'];
-  }): { success: boolean; commandId?: string; error?: string } {
+  }): Promise<{ success: boolean; commandId?: string; error?: string }> {
     // Risk Guard pre-validation
     if (this.riskGuard.emergencyKillSwitch && params.action !== 'CLOSE_ALL' && params.action !== 'CLOSE_POSITION') {
       return { success: false, error: 'Emergency Kill Switch is ACTIVE. New orders are blocked.' };
@@ -300,13 +361,13 @@ class TradeStore {
       if (params.volume && params.volume > this.riskGuard.maxLotSizePerTrade) {
         return {
           success: false,
-          error: `Requested lot size (${params.volume}) exceeds risk limit of ${this.riskGuard.maxLotSizePerTrade} lots.`,
+          error: Requested lot size () exceeds risk limit of  lots.,
         };
       }
       if (this.positions.size >= this.riskGuard.maxOpenPositions) {
         return {
           success: false,
-          error: `Max open positions limit (${this.riskGuard.maxOpenPositions}) reached.`,
+          error: Max open positions limit () reached.,
         };
       }
       if (params.symbol && this.riskGuard.allowedSymbols.length > 0) {
@@ -314,13 +375,15 @@ class TradeStore {
         if (!this.riskGuard.allowedSymbols.some((s) => s.toUpperCase() === sym)) {
           return {
             success: false,
-            error: `Symbol ${params.symbol} is not permitted by Risk Guard policy.`,
+            error: Symbol  is not permitted by Risk Guard policy.,
           };
         }
       }
     }
 
-    const id = `cmd-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    // For direct trading, we execute immediately instead of queuing
+    // But we still create a command for logging and tracking
+    const id = cmd--;
     const command: TradeCommand = {
       id,
       action: params.action,
@@ -332,28 +395,111 @@ class TradeStore {
       tp: params.tp,
       ticket: params.ticket,
       magic: params.magic || 889900,
-      comment: params.comment || `${params.source}_CMD`,
+      comment: params.comment || ${params.source}_CMD,
       slippage: params.slippage || 10,
       status: 'pending',
       createdAt: Date.now(),
       source: params.source,
     };
 
-    this.commandQueue.unshift(command);
-    if (this.commandQueue.length > 50) this.commandQueue.pop();
+    // Execute the command based on action
+    let result: { success: boolean; dealTicket?: number; orderTicket?: number; executionPrice?: number; error?: string } = {
+      success: false,
+      error: 'Unknown action'
+    };
+
+    switch (params.action) {
+      case 'EXECUTE_TRADE':
+        if (!params.symbol || params.volume === undefined || params.orderType === undefined) {
+          result = { success: false, error: 'Missing symbol, volume, or orderType for trade' };
+        } else {
+          result = await this.mt5Service.sendOrder(
+            params.orderType,
+            params.symbol,
+            params.volume,
+            params.sl ?? 0,
+            params.tp ?? 0,
+            params.price ?? 0
+          );
+        }
+        break;
+      case 'CLOSE_POSITION':
+        if (!params.ticket) {
+          result = { success: false, error: 'Missing ticket for position close' };
+        } else {
+          result = await this.mt5Service.closePosition(params.ticket);
+        }
+        break;
+      case 'MODIFY_POSITION':
+        if (!params.ticket || params.sl === undefined || params.tp === undefined) {
+          result = { success: false, error: 'Missing ticket, sl, or tp for position modify' };
+        } else {
+          result = await this.mt5Service.modifyPosition(params.ticket, params.sl, params.tp);
+        }
+        break;
+      case 'CLOSE_ALL':
+        // Close all positions
+        const positionTickets = Array.from(this.positions.keys());
+        // We'll close positions sequentially for simplicity
+        // In a production system, we might want to do this in parallel and track results
+        let allSuccess = true;
+        let lastError = '';
+        for (const ticket of positionTickets) {
+          const closeResult = await this.mt5Service.closePosition(ticket);
+          if (!closeResult.success) {
+            allSuccess = false;
+            lastError = closeResult.error || 'Unknown error';
+          }
+        }
+        result = {
+          success: allSuccess,
+          error: allSuccess ? undefined : lastError
+        };
+        break;
+      case 'FETCH_HISTORY':
+        // This would be handled by the EA in the original system, but we can implement it via direct API
+        // We'll leave it as a no-op for now and log that it's not implemented
+        result = { success: false, error: 'FETCH_HISTORY not implemented in direct API mode' };
+        break;
+      case 'SET_RISK_GUARD':
+        // This is handled by updateRiskGuard method
+        result = { success: true };
+        break;
+      default:
+        result = { success: false, error: Unsupported action:  };
+    }
+
+    // Update command with result
+    command.status = result.success ? 'executed' : 'failed';
+    command.executedAt = Date.now();
+    command.result = result;
 
     // Persist to SQLite Database
     dbInsertOrder(command).catch((e) => console.error('DB insert order error:', e));
 
+    // Log the command execution
     this.addLog(
-      'info',
-      `Queued [${params.action}] via ${params.source}`,
-      `${params.action} ${params.symbol || ''} ${params.orderType || ''} ${params.volume ? params.volume + ' lots' : ''} (ID: ${id})`,
-      params.source,
+      result.success ? 'trade' : 'error',
+      result.success ? MT5 Execution Confirmed () : MT5 Execution Failed (),
+      result.success
+        ? Deal # @  
+        : Error: ,
+      'MT5_DIRECT',
       params.ticket
     );
 
-    return { success: true, commandId: id };
+    // If the command was successful, we trigger an immediate state update to reflect the change
+    if (result.success) {
+      // We don't await this because we want to return the result quickly
+      this.updateStateFromMT5().catch((e) => console.error('Error updating state after command:', e));
+    }
+
+    // Return the command execution result
+    return {
+      success: result.success,
+      commandId: id,
+      error: result.error ? ${result.error} : undefined
+    };
   }
 
   // Prune any unexecuted orders older than 24 hours
@@ -389,6 +535,14 @@ class TradeStore {
     errorMessage?: string;
     executionTimeMs?: number;
   }) {
+    // This method is kept for compatibility but is not used in direct API mode
+    // We log that it's ignored
+    this.addLog(
+      'warn',
+      'Execution Result Ignored',
+      'Using direct MetaTrader5 API for execution results',
+      'MT5_DIRECT'
+    );
     const cmd = this.commandQueue.find((c) => c.id === res.commandId);
     if (cmd) {
       cmd.status = res.success ? 'executed' : 'failed';
@@ -400,10 +554,10 @@ class TradeStore {
 
       this.addLog(
         res.success ? 'trade' : 'error',
-        res.success ? `MT5 Execution Confirmed (${cmd.action})` : `MT5 Execution Failed (${cmd.action})`,
+        res.success ? MT5 Execution Confirmed () : MT5 Execution Failed (),
         res.success
-          ? `Deal #${res.dealTicket || res.orderTicket} @ ${res.executionPrice || 'market'} (${res.executionTimeMs}ms)`
-          : `Error: ${res.errorMessage || 'RetCode ' + res.errorCode}`,
+          ? Deal # @  (ms)
+          : Error: ,
         'MT5_EA',
         res.orderTicket || cmd.ticket
       );
@@ -419,7 +573,7 @@ class TradeStore {
       this.addLog(
         'warn',
         'Global Take Profit Reached!',
-        `Floating profit $${profit.toFixed(2)} reached target $${this.riskGuard.globalTakeProfitUSD}. Triggering emergency closure.`,
+        Floating profit {profit.toFixed(2)} reached target {this.riskGuard.globalTakeProfitUSD}. Triggering emergency closure.,
         'RISK_GUARD'
       );
       this.enqueueCommand({
@@ -434,7 +588,7 @@ class TradeStore {
       this.addLog(
         'error',
         'Global Stop Loss Breach!',
-        `Floating loss -$${Math.abs(profit).toFixed(2)} hit stop limit -$${this.riskGuard.globalStopLossUSD}. Liquidating positions.`,
+        Floating loss -{Math.abs(profit).toFixed(2)} hit stop limit -{this.riskGuard.globalStopLossUSD}. Liquidating positions.,
         'RISK_GUARD'
       );
       this.enqueueCommand({
@@ -453,7 +607,7 @@ class TradeStore {
       this.addLog(
         'error',
         'Critical Margin Level Protection Triggered',
-        `Margin level ${this.account.marginLevel.toFixed(1)}% dropped below ${this.riskGuard.autoCloseOnMarginLevelBelow}%. Liquidation started.`,
+        Margin level % dropped below %. Liquidation started.,
         'RISK_GUARD'
       );
       this.enqueueCommand({
@@ -473,7 +627,7 @@ class TradeStore {
     this.addLog(
       'info',
       'Risk Guard Parameters Updated',
-      `TP: $${this.riskGuard.globalTakeProfitUSD} | SL: $${this.riskGuard.globalStopLossUSD} | Trailing: ${this.riskGuard.trailingStopEnabled ? 'ON' : 'OFF'}`,
+      TP: {this.riskGuard.globalTakeProfitUSD} | SL: {this.riskGuard.globalStopLossUSD} | Trailing: ,
       'USER_CONTROL'
     );
   }
@@ -501,7 +655,7 @@ class TradeStore {
     ticket?: number
   ) {
     const log: ExecutionLog = {
-      id: `log-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id: log--,
       timestamp: Date.now(),
       level,
       title,
@@ -517,14 +671,14 @@ class TradeStore {
 
   public getState() {
     this.pruneStaleOrders();
-    // Check if EA timed out (no sync in 5 seconds)
-    const isEaActive = this.eaConnected && Date.now() - this.lastEaSync < 5000;
+    // Check if we have recent data (within 2 polling intervals)
+    const isDataFresh = Date.now() - this.account.lastUpdate < this.POLLING_INTERVAL_MS * 2;
 
     return {
       connection: {
-        isEaConnected: isEaActive,
-        lastEaSync: this.lastEaSync,
-        eaVersion: this.eaVersion,
+        isEaConnected: false, // We are not using EA
+        lastEaSync: this.account.lastUpdate,
+        eaVersion: 'Direct API',
         bridgeEndpoint: 'http://127.0.0.1:7777',
         fallbackEndpoint: 'http://127.0.0.1:3000/api/mt5',
         serverTime: Date.now(),
@@ -591,12 +745,17 @@ class TradeStore {
     return this.riskGuard;
   }
 
-  // Request on-demand history from EA via command queue
-  public requestHistoryFromEA(symbol: string, timeframe = 'M1', count = 100) {
-    return this.enqueueCommand({
+  // Request on-demand history from EA via command queue - NOW DEPRECATED
+  public async requestHistoryFromEA(symbol: string, timeframe = 'M1', count = 100) {
+    this.addLog(
+      'warn',
+      'History Request Ignored',
+      'Using direct MetaTrader5 API for historical data',
+      'MT5_DIRECT'
+    );
+    // We could implement this via the direct API, but for now we return a fake command
+    return await this.enqueueCommand({
       action: 'FETCH_HISTORY',
-      // Preserve original casing — MT5 SymbolSelect is case-sensitive on
-      // brokers like Deriv ("Step Index", not "STEP INDEX").
       symbol: symbol,
       comment: JSON.stringify({ timeframe, count }),
       source: 'AI_MCP',
@@ -636,7 +795,7 @@ class TradeStore {
     this.chartHistory = generated;
     await dbInsertCandles(sym, tf, generated);
     this.indicators = calculateIndicators(this.chartHistory, sym, tf);
-    this.addLog('info', `Seeded ${count} test candles`, `${sym} [${tf}] starting @ ${basePrice}`, 'TEST_SIMULATOR');
+    this.addLog('info', Seeded  test candles, ${sym} [] starting @ , 'TEST_SIMULATOR');
     return {
       symbol: sym,
       timeframe: tf,
@@ -648,3 +807,16 @@ class TradeStore {
 }
 
 export const tradeStore = new TradeStore();
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('Received SIGINT. Shutting down gracefully...');
+  tradeStore.stopPolling();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('Received SIGTERM. Shutting down gracefully...');
+  tradeStore.stopPolling();
+  process.exit(0);
+});
