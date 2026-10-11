@@ -163,9 +163,10 @@ export const LivePriceChart: React.FC<LivePriceChartProps> = ({
         ) : (
           <div className="text-slate-400 text-xs font-mono flex flex-col items-center gap-2 p-6 text-center">
             <TrendingUp className="h-5 w-5 text-cyan-400" />
-            <span>Awaiting real price ticks from MT5 EA for {symbol}</span>
+            <span>Awaiting real price ticks from MT5 via Direct API for {symbol}</span>
             <span className="text-[11px] text-slate-500">
-              Attach AIMT5Bridge.mq5 in MetaTrader 5 to stream tick trajectory
+              The bridge polls the MT5 terminal every 2 seconds for tick data via the MetaTrader5 Python package.
+              No EA or simulated ticks are used.
             </span>
           </div>
         )}

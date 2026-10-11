@@ -670,7 +670,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         throw new Error('Missing required arguments: symbol, orderType, volume');
       }
 
-      const res = tradeStore.enqueueCommand({
+      const res = await tradeStore.enqueueCommand({
         action: 'EXECUTE_TRADE',
         // Preserve the original symbol casing — MT5 SymbolSelect is
         // case-sensitive on brokers like Deriv ("Step Index", not "STEP INDEX").
@@ -700,7 +700,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       const { ticket, sl, tp } = args;
       if (!ticket) throw new Error('Missing required argument: ticket');
 
-      const res = tradeStore.enqueueCommand({
+      const res = await tradeStore.enqueueCommand({
         action: 'MODIFY_POSITION',
         ticket: Number(ticket),
         sl: sl !== undefined ? Number(sl) : undefined,
@@ -724,7 +724,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       const { ticket, volume } = args;
       if (!ticket) throw new Error('Missing required argument: ticket');
 
-      const res = tradeStore.enqueueCommand({
+      const res = await tradeStore.enqueueCommand({
         action: 'CLOSE_POSITION',
         ticket: Number(ticket),
         volume: volume ? Number(volume) : undefined,
@@ -745,7 +745,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
 
     case 'mt5_close_all': {
       const symbol = args.symbol ? String(args.symbol).toUpperCase() : 'ALL';
-      const res = tradeStore.enqueueCommand({
+      const res = await tradeStore.enqueueCommand({
         action: 'CLOSE_ALL',
         symbol: symbol,
         source: 'AI_MCP',
@@ -837,7 +837,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     case 'mt5_cancel_pending_order': {
       const ticket = Number(args.ticket);
       if (!ticket) throw new Error('Missing ticket parameter');
-      const res = tradeStore.enqueueCommand({
+      const res = await tradeStore.enqueueCommand({
         action: 'CANCEL_PENDING',
         ticket,
         source: 'AI_MCP',
@@ -854,7 +854,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       const sym = args.symbol || tradeStore.getCurrentChart()?.symbol || 'EURUSD';
       const tf = args.timeframe || tradeStore.getCurrentChart()?.timeframe || 'M1';
       const count = args.count ? Number(args.count) : 100;
-      const res = tradeStore.requestHistoryFromEA(sym, tf, count);
+      const res = await tradeStore.requestHistoryFromEA(sym, tf, count);
       return {
         status: 'dispatched_to_ea',
         commandId: res.commandId,

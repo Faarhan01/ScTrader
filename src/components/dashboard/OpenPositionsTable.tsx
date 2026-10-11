@@ -124,11 +124,11 @@ export const OpenPositionsTable: React.FC<OpenPositionsTableProps> = ({
       {positions.length === 0 ? (
         <div className="border border-dashed border-slate-800 rounded-lg p-8 text-center text-slate-400 font-mono text-xs space-y-2">
           <div className="text-sm font-bold text-slate-300">
-            0 Active Positions in MetaTrader 5
+            0 Active Positions (Direct API)
           </div>
           <p className="text-slate-500 max-w-lg mx-auto">
-            No simulated or fake trades are generated. Live positions appear here in real-time as soon as trades
-            are executed by your external AI agent via MCP or manually dispatched via the Order Execution Dock.
+            The bridge polls the MT5 terminal every 2 seconds for position data via the MetaTrader5 Python package.
+            No simulated or fake trades are generated. Live positions appear here as soon as they are available from the direct API.
           </p>
         </div>
       ) : (

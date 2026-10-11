@@ -75,9 +75,10 @@ export const EaSetupGuide: React.FC = () => {
               </h1>
             </div>
             <p className="text-sm text-slate-300 mt-2 max-w-3xl leading-relaxed">
-              The <code className="text-cyan-400 font-mono">AIMT5Bridge.mq5</code> Expert Advisor runs directly inside
+              The <code className="text-cyan-400 font-mono">AIMT5Bridge.mq5</code> Expert Advisor is optional and runs directly inside
               MetaTrader 5. It streams live tick quotes, pushes position updates, and polls the local bridge endpoint
               at <code className="text-cyan-400 font-mono">http://127.0.0.1:7777</code> for pending AI trade commands.
+              The primary connection method is via the MetaTrader5 Python package (direct API) which does not require the EA.
             </p>
           </div>
 

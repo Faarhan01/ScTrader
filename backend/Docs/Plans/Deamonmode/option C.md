@@ -408,3 +408,27 @@ Key improvements in this version:
 5. **Exponential backoff restart** — same resilience as Option A.
 6. **TypeScript throughout** — all files are `.ts`, type-checked.
 7. **Shared code with Option A** — `event-buffer.ts` and `commands.ts` are identical.
+
+
+## Daemon purpose and live data
+
+The daemon is designed for AI agents that need low-latency, push-based updates from the trading system without polling. It provides:
+
+- **Live data streaming**: The daemon receives real-time updates from the tradeStore (which is updated by the EA via `/sync` every ~500ms) via the main thread's EventEmitter or polling. Events include tick updates, position changes, command results, risk guard changes, and more.
+- **Command execution**: The daemon can send trading commands (buy, sell, close, modify) via the main thread, which validates them against the tradeStore's risk guard before queuing for the EA.
+- **State mirror**: The daemon maintains an in-memory mirror of the tradeStore state, allowing instant queries for account, positions, symbols, etc., without waiting for the next poll cycle.
+
+### Daemon vs. Bridge for live data
+
+| Feature                | Daemon (Option C)                                      | Python Bridge                                        |
+|------------------------|--------------------------------------------------------|------------------------------------------------------|
+| Data source            | tradeStore (updated by EA via `/sync`)                 | Direct MT5 via `MetaTrader5` PyPI package            |
+| Update mechanism       | Push events (via postMessage from main thread)         | Polling (must call MT5 API repeatedly)               |
+| Latency                | Sub-250ms (daemon polls tradeStore at 250ms)           | Configurable polling interval (default 1.5s,可调至50ms) |
+| Data completeness      | Includes EA-synthesized data (e.g., marketDepth, chartHistory, account snapshots) | Raw MT5 data only; no EA enrichment                 |
+| Command path           | Goes through tradeStore → risk guard → EA queue        | Direct MT5 order_send (synchronous)                  |
+| Risk guard validation  | Yes (commands validated by tradeStore's risk guard)    | No (unless manually implemented)                     |
+| Setup                  | No changes to tradeStore.ts (polling approach)         | Requires MT5 running and Python dependencies         |
+| Use case               | AI agent needing live stream of enriched trading data  | Direct MT5 access for historical data, synchronous trading, or when EA is not running |
+
+In summary, use the daemon for low-latency, event-driven access to the EA's view of the market (including enriched data and risk-guard-validated command routing). Use the bridge when you need direct, synchronous access to MT5 (e.g., for historical tick/candle queries, direct order placement bypassing the EA, or when the EA is not connected). Both can coexist; the daemon relies on the EA being connected to MT5, while the bridge connects directly to MT5.

@@ -703,7 +703,7 @@ export async function executeStrategySignal(
   }
 
   const vol = customVolume || signal.lotSize || 0.1;
-  const enqResult = tradeStore.enqueueCommand({
+  const enqResult = await tradeStore.enqueueCommand({
     action: 'EXECUTE_TRADE',
     symbol: signal.symbol,
     orderType: signal.signal,

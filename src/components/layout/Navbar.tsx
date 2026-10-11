@@ -34,7 +34,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [copiedEndpoint, setCopiedEndpoint] = useState(false);
   const [killSwitchLoading, setKillSwitchLoading] = useState(false);
 
-  const isEaOnline = state?.connection.isEaConnected ?? false;
+  const isApiOnline = state?.account.server !== 'Awaiting MT5 Connection';
   const isKillSwitchActive = state?.riskGuard.emergencyKillSwitch ?? false;
 
   const copyEndpoint = () => {
@@ -127,22 +127,22 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Status Indicators & Kill Switch */}
           <div className="flex items-center gap-3">
-            {/* MT5 EA Status */}
+            {/* MT5 API Status */}
             <div
               className={`flex items-center gap-2 px-2.5 py-1 rounded-full border text-xs font-mono transition-colors ${
-                isEaOnline
+                isApiOnline
                   ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60 shadow-sm shadow-emerald-900/30'
                   : 'bg-amber-950/40 text-amber-300 border-amber-800/50'
               }`}
-              title={isEaOnline ? 'MT5 Expert Advisor sending live ticks & executing orders' : 'Waiting for EA to attach in MT5 at http://127.0.0.1:7777'}
+              title={isApiOnline ? 'Connected to MT5 terminal via direct API' : 'Waiting for MT5 terminal connection via direct API'}
             >
               <span
                 className={`h-2 w-2 rounded-full ${
-                  isEaOnline ? 'bg-emerald-400 animate-ping' : 'bg-amber-400 animate-pulse'
+                  isApiOnline ? 'bg-emerald-400 animate-ping' : 'bg-amber-400 animate-pulse'
                 }`}
               />
-              <span className="hidden sm:inline font-semibold">MT5 EA:</span>
-              <span>{isEaOnline ? 'ONLINE' : 'WAITING'}</span>
+              <span className="hidden sm:inline font-semibold">MT5 API:</span>
+              <span>{isApiOnline ? 'CONNECTED' : 'DISCONNECTED'}</span>
             </div>
 
             {/* WebSocket Latency */}

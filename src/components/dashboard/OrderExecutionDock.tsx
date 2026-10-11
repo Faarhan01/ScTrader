@@ -60,7 +60,7 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
       });
 
       if (res.success) {
-        setStatus({ message: `Queued #${res.commandId} for MT5 async dispatch!` });
+        setStatus({ message: `Queued #${res.commandId} for MT5 direct API execution!` });
         setSl('');
         setTp('');
       } else {
@@ -162,23 +162,25 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
                 exceedsRisk ? 'border-rose-500 bg-rose-950/20' : 'border-slate-700 focus:border-cyan-500'
               }`}
             />
-            {/* Quick lot pills */}
-            <div className="flex items-center gap-1.5 mt-1.5">
-              {quickLotSizes.map((sz) => (
-                <button
-                  key={sz}
-                  type="button"
-                  onClick={() => setVolume(sz)}
-                  className={`text-[10px] px-1.5 py-0.5 rounded border ${
-                    volume === sz
-                      ? 'bg-cyan-950 text-cyan-300 border-cyan-700'
-                      : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
-                  }`}
-                >
-                  {sz}
-                </button>
-              ))}
-            </div>
+             {/* Quick lot pills */}
+             <div className="flex items-center gap-1.5 mt-1.5">
+               {quickLotSizes.map((sz) => {
+                 return (
+                   <button
+                     key={sz}
+                     type="button"
+                     onClick={() => setVolume(sz)}
+                     className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                       volume === sz
+                         ? 'bg-cyan-950 text-cyan-300 border-cyan-700'
+                         : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
+                     }`}
+                   >
+                     {sz}
+                   </button>
+                 );
+               })}
+             </div>
           </div>
 
           {/* SL & TP */}
@@ -195,11 +197,11 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
                       const target = orderType === 'BUY' ? activeTick.bid - 25 * point : activeTick.ask + 25 * point;
                       setSl(target.toFixed(digits));
                     }}
-                    className="text-[10px] text-cyan-400 hover:text-cyan-300 font-mono"
-                  >
-                    -25 pips
-                  </button>
-                )}
+                  className="text-[10px] text-cyan-400 hover:text-cyan-300 font-mono"
+                >
+                  -25 pips
+                </button>
+              )}
               </div>
               <input
                 type="number"
@@ -222,11 +224,11 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
                       const target = orderType === 'BUY' ? activeTick.ask + 50 * point : activeTick.bid - 50 * point;
                       setTp(target.toFixed(digits));
                     }}
-                    className="text-[10px] text-cyan-400 hover:text-cyan-300 font-mono"
-                  >
-                    +50 pips
-                  </button>
-                )}
+                  className="text-[10px] text-cyan-400 hover:text-cyan-300 font-mono"
+                >
+                  +50 pips
+                </button>
+              )}
               </div>
               <input
                 type="number"
@@ -278,7 +280,7 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
             }`}
           >
             <Send className="h-3.5 w-3.5" />
-            {submitting ? 'Dispatching to Queue...' : `Dispatch ${orderType} ${lotNumber} Lots`}
+            {submitting ? 'Sending to MT5 via API...' : `Send ${orderType} ${lotNumber} Lots via API`}
           </button>
         </form>
       </div>

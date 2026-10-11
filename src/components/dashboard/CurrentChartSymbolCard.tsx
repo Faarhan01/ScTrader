@@ -40,11 +40,11 @@ export const CurrentChartSymbolCard: React.FC<CurrentChartSymbolCardProps> = ({
       });
       const data = await res.json();
       if (data.success) {
-        setFeedback(`Requested 100 ${timeframe} candles from EA for ${symbol}`);
+        setFeedback(`Requested 100 ${timeframe} candles via direct API for ${symbol}`);
         onRefresh?.();
       }
     } catch {
-      setFeedback('Failed to request candles from EA');
+      setFeedback('Failed to request candles via direct API');
     } finally {
       setLoadingAction(null);
       setTimeout(() => setFeedback(null), 3500);
@@ -92,8 +92,7 @@ export const CurrentChartSymbolCard: React.FC<CurrentChartSymbolCardProps> = ({
             No Active MT5 Chart Connected Yet
           </p>
           <p className="text-slate-500 max-w-md mx-auto text-[11px] leading-relaxed">
-            Attach <code className="text-cyan-400 font-bold">AIMT5Bridge.mq5</code> to any chart in MetaTrader 5 (e.g. EURUSD M1).
-            This section will immediately display the active symbol specifications, live quotes, and session boundaries.
+            The MT5 terminal is connected via the direct API. This section displays the active symbol specifications, live quotes, and session boundaries from the connected chart.
           </p>
 
           <div className="pt-2 flex items-center justify-center gap-3">
@@ -130,11 +129,11 @@ export const CurrentChartSymbolCard: React.FC<CurrentChartSymbolCardProps> = ({
               </span>
               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-800/60 flex items-center gap-1">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
-                Active EA Chart
+                Active Chart (Direct API)
               </span>
             </div>
             <p className="text-xs text-slate-400 font-mono mt-0.5">
-              {currentChart.description || 'MetaTrader 5 Connected Chart'}
+              {currentChart.description || 'MetaTrader 5 Connected Chart via Direct API'}
             </p>
           </div>
         </div>
@@ -157,7 +156,7 @@ export const CurrentChartSymbolCard: React.FC<CurrentChartSymbolCardProps> = ({
           <button
             onClick={() => handleRequestCandles(currentChart.symbol, currentChart.timeframe)}
             disabled={loadingAction === 'request'}
-            title="Request historical candles directly from MT5"
+            title="Request historical candles directly from MT5 via API"
             className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-xs border border-slate-700 transition-colors flex items-center gap-1.5"
           >
             <Download className="h-3.5 w-3.5 text-cyan-400" />

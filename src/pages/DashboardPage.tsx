@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AppState, StrategySignal } from '../types';
-import { EaConnectionRadar } from '../components/dashboard/EaConnectionRadar';
+import { ApiConnectionRadar } from '../components/dashboard/ApiConnectionRadar';
 import { CurrentChartSymbolCard } from '../components/dashboard/CurrentChartSymbolCard';
 import { AccountMetricsBar } from '../components/dashboard/AccountMetricsBar';
 import { LiveTickStream } from '../components/dashboard/LiveTickStream';
@@ -60,13 +60,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ state, onRefresh, 
 
   return (
     <div className="space-y-6">
-      {/* 1. Real-Time EA Connection Detector */}
-      <EaConnectionRadar state={state} onRefresh={onRefresh} />
+      {/* 1. Real-Time API Connection Detector */}
+      <ApiConnectionRadar state={state} onRefresh={onRefresh} />
 
       {/* 2. Account High-Level Metrics */}
       <AccountMetricsBar account={account} />
 
-      {/* 3. Section for Current Symbol (EA Connected Chart) */}
+      {/* 3. Section for Current Symbol (Direct API Connected Chart) */}
       <CurrentChartSymbolCard
         currentChart={currentChart}
         onSelectSymbol={setSelectedSymbol}
@@ -149,8 +149,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ state, onRefresh, 
                       sig.signal === 'BUY'
                         ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
                         : sig.signal === 'SELL'
-                        ? 'bg-rose-950 text-rose-400 border border-rose-800'
-                        : 'bg-slate-800 text-slate-400 border border-slate-700'
+                          ? 'bg-rose-950 text-rose-400 border border-rose-800'
+                          : 'bg-slate-800 text-slate-400 border border-slate-700'
                     }`}
                   >
                     {sig.signal} ({sig.confidence}%)
@@ -202,7 +202,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ state, onRefresh, 
         onSelectSymbol={setSelectedSymbol}
       />
 
-      {/* 8. Section for All Tracked Symbols Sent By MT5 EA */}
+      {/* 8. Section for All Tracked Symbols from MT5 Direct API */}
       <AllTrackedSymbolsTable
         symbols={allSymbols}
         ticks={ticks}
@@ -213,4 +213,3 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ state, onRefresh, 
     </div>
   );
 };
-

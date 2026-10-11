@@ -5,7 +5,6 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 import { setupWebSocketServer } from './backend/services/websocketServer.js';
-import { startDaemon } from './backend/daemon/daemon.js';
 import { mt5Router } from './backend/routes/mt5Routes.js';
 import { apiRouter } from './backend/routes/apiRoutes.js';
 
@@ -44,11 +43,8 @@ async function startServer() {
 
   const server = http.createServer(app);
 
-  // Attach WebSocket server for real-time tick streaming and order events
-  setupWebSocketServer(server);
-
-  // Start the daemon worker thread (isolated agent runtime)
-  startDaemon();
+   // Attach WebSocket server for real-time tick streaming and order events
+   setupWebSocketServer(server);
 
   // Vite middleware in dev or static files in production
   if (!isProd) {

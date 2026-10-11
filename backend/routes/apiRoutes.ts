@@ -13,10 +13,10 @@ apiRouter.get('/state', (req, res) => {
 });
 
 // Enqueue order command from UI or API
-apiRouter.post('/commands', (req, res) => {
+apiRouter.post('/commands', async (req, res) => {
   const { action, symbol, orderType, volume, sl, tp, ticket, magic, comment, source } = req.body;
 
-  const result = tradeStore.enqueueCommand({
+  const result = await tradeStore.enqueueCommand({
     action: action || 'EXECUTE_TRADE',
     symbol,
     orderType,
@@ -283,11 +283,11 @@ apiRouter.post('/candles/simulate', async (req, res) => {
 });
 
 // Request historical candles from EA on demand
-apiRouter.post('/candles/request', (req, res) => {
+apiRouter.post('/candles/request', async (req, res) => {
   try {
     const { symbol, timeframe, count } = req.body;
     if (!symbol) return res.status(400).json({ error: 'Missing symbol' });
-    const result = tradeStore.requestHistoryFromEA(
+    const result = await tradeStore.requestHistoryFromEA(
       symbol,
       timeframe || 'M1',
       Number(count) || 100

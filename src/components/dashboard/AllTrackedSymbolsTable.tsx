@@ -50,10 +50,10 @@ export const AllTrackedSymbolsTable: React.FC<AllTrackedSymbolsTableProps> = ({
           <Layers className="h-5 w-5 text-cyan-400" />
           <div>
             <h2 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-              All Tracked Symbols Sent By MT5 EA ({displaySymbols.length})
+              All Tracked Symbols from MT5 Direct API ({displaySymbols.length})
             </h2>
             <p className="text-xs text-slate-400 font-mono">
-              Full broker market specifications & live quotes transmitted from MetaTrader 5
+              Full broker market specifications & live quotes from MetaTrader 5 terminal via direct API
             </p>
           </div>
         </div>
@@ -73,11 +73,10 @@ export const AllTrackedSymbolsTable: React.FC<AllTrackedSymbolsTableProps> = ({
       {displaySymbols.length === 0 ? (
         <div className="border border-dashed border-slate-800 rounded-lg p-8 text-center text-slate-400 font-mono text-xs space-y-2">
           <div className="text-sm font-bold text-slate-300">
-            Awaiting Symbols Transmitted by MT5 EA
+            Awaiting Symbols from MT5 Direct API
           </div>
           <p className="text-slate-500 max-w-lg mx-auto">
-            Once <code className="text-cyan-400">AIMT5Bridge.mq5</code> connects to <code className="text-cyan-400">http://127.0.0.1:7777</code>,
-            all symbols defined in the EA properties (or Market Watch) will populate here with live broker metrics.
+            Once the MT5 terminal is connected via the direct API, all symbols will populate here with live broker metrics.
           </p>
         </div>
       ) : (
@@ -114,7 +113,7 @@ export const AllTrackedSymbolsTable: React.FC<AllTrackedSymbolsTableProps> = ({
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-white text-xs">{item.symbol}</span>
                         {item.isCurrentChart && (
-                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800/60">
+                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/60">
                             Active Chart
                           </span>
                         )}
